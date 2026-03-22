@@ -1,0 +1,26 @@
+model_name: microsoft/deberta-v3-base
+
+# Data
+data_dir: data/
+output_dir: outputs/
+language_filter: english       # "english" or "all"
+val_split: 0.15
+seed: 42
+
+# Tokenization
+max_length: 256
+
+# Training
+batch_size: 16
+num_epochs: 5
+learning_rate: 2.0e-5
+warmup_ratio: 0.1
+weight_decay: 0.01
+gradient_accumulation_steps: 1
+fp16: true
+
+# Evaluation
+metric_for_best_model: accuracy
+load_best_model_at_end: true
+eval_strategy: epoch
+save_strategy: epoch
