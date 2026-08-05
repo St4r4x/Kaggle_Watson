@@ -28,7 +28,7 @@ def predict(model_dir: str, config: dict) -> None:
     print(f"Using device: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+    model = AutoModelForSequenceClassification.from_pretrained(model_dir, torch_dtype=torch.float32)
     model.to(device)
     model.eval()
 
@@ -48,6 +48,11 @@ def predict(model_dir: str, config: dict) -> None:
 
     output_dir = Path(config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    label_map = config.get("label_map")
+    if label_map:
+        inverse_map = {v: k for k, v in label_map.items()}
+        all_preds = [inverse_map[p] for p in all_preds]
 
     submission = pd.DataFrame({"id": df_test["id"], "prediction": all_preds})
     out_path = output_dir / "submission.csv"

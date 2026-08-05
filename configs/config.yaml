@@ -1,23 +1,28 @@
-model_name: microsoft/deberta-v3-base
+model_name: joeddav/xlm-roberta-large-xnli   # pre-fine-tuned on MultiNLI+XNLI (~390k pairs), matches our exact label scheme + all 15 languages
+
+# joeddav checkpoint's native label order is 0=contradiction,1=neutral,2=entailment — the REVERSE of Kaggle's 0=entailment,1=neutral,2=contradiction.
+# label_map remaps our Kaggle-encoded labels -> checkpoint order so the pretrained classifier head starts already aligned.
+label_map: {0: 2, 1: 1, 2: 0}
+checkpoint_id2label: {0: contradiction, 1: neutral, 2: entailment}
 
 # Data
 data_dir: data/
 output_dir: outputs/
-language_filter: english       # "english" or "all"
+language_filter: all       # "english" or "all"
 val_split: 0.15
 seed: 42
 
 # Tokenization
-max_length: 256
+max_length: 256   # multilingual: thai/urdu/greek/hindi tokenize much denser than english, 128 truncated thai on average
 
 # Training
-batch_size: 16
+batch_size: 8            # xlm-roberta-large is 3x deberta-v3-base params, safety margin on 16GB VRAM
 num_epochs: 5
-learning_rate: 2.0e-5
-warmup_ratio: 0.1
-weight_decay: 0.01
-gradient_accumulation_steps: 1
-fp16: true
+learning_rate: 1.409e-5   # found via Optuna sweep for deberta-v3-base, starting point for xlm-r-large too
+warmup_ratio: 0.115
+weight_decay: 0.087
+gradient_accumulation_steps: 2  # effective batch size stays 16
+bf16: false   # deberta-v2/v3 disentangled attention gradients underflow in bf16's 7-bit mantissa (silent, no crash) — stay fp32
 
 # Evaluation
 metric_for_best_model: accuracy

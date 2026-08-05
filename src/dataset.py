@@ -6,12 +6,16 @@ LABEL2ID = {"entailment": 0, "neutral": 1, "contradiction": 2}
 ID2LABEL = {v: k for k, v in LABEL2ID.items()}
 
 
-def load_train_data(data_dir: str, language_filter: str = "english") -> pd.DataFrame:
+def load_train_data(
+    data_dir: str, language_filter: str = "english", label_map: dict | None = None
+) -> pd.DataFrame:
     df = pd.read_csv(f"{data_dir}/train.csv")
     if language_filter != "all":
         df = df[df["language"].str.lower() == language_filter.lower()].reset_index(
             drop=True
         )
+    if label_map:
+        df["label"] = df["label"].map(label_map)
     return df
 
 
