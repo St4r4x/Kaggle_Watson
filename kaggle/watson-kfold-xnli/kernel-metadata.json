@@ -1,0 +1,13 @@
+{
+  "id": "st4r4x/watson-kfold-xnli",
+  "title": "watson-kfold-xnli",
+  "code_file": "kernel.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "competition_sources": ["contradictory-my-dear-watson"],
+  "dataset_sources": [],
+  "kernel_sources": []
+}
