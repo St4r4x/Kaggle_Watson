@@ -77,6 +77,11 @@ def compute_metrics(eval_pred):
 def main() -> None:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+    assert torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 7, (
+        "GPU T4x2 required — select it in the Kaggle notebook's Session options "
+        "before running (P100, sm_60, is not supported by the current torch wheel)"
+    )
+
     df = pd.read_csv(f"{DATA_DIR}/train.csv")
     print(f"Training samples: {len(df)}")
 
