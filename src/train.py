@@ -7,20 +7,23 @@ Usage:
 
 import argparse
 import os
-import yaml
+from typing import Callable
+
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, train_test_split
-from sklearn.metrics import accuracy_score, f1_score
-
 import torch
 import torch.nn.functional as F
+import yaml
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from transformers import (
-    AutoTokenizer,
     AutoModelForSequenceClassification,
-    TrainingArguments,
-    Trainer,
+    AutoTokenizer,
     EarlyStoppingCallback,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+    Trainer,
+    TrainingArguments,
 )
 
 from dataset import NLIDataset, load_train_data, ID2LABEL
@@ -130,8 +133,8 @@ def run_training(
     config: dict,
     df_train: pd.DataFrame,
     df_val: pd.DataFrame,
-    tokenizer,
-    model_init,
+    tokenizer: PreTrainedTokenizerBase,
+    model_init: Callable[..., PreTrainedModel],
     rdrop: bool,
     output_dir: str,
 ) -> dict:
