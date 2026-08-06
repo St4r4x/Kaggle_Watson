@@ -9,7 +9,8 @@ import argparse
 import os
 import yaml
 import numpy as np
-from sklearn.model_selection import train_test_split
+import pandas as pd
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.metrics import accuracy_score, f1_score
 
 import torch
@@ -55,6 +56,19 @@ def build_model_init(config: dict):
     return model_init
 
 
+def make_stratified_folds(
+    df: pd.DataFrame, n_splits: int, seed: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    folds = list(skf.split(df, df["label"]))
+    all_val_idx = np.concatenate([val_idx for _, val_idx in folds])
+    assert len(all_val_idx) == len(set(all_val_idx)) == len(df), (
+        f"fold val indices must partition the full dataset exactly once: "
+        f"got {len(all_val_idx)} indices, {len(set(all_val_idx))} unique, {len(df)} rows"
+    )
+    return folds
+
+
 def hpo_space(trial):
     return {
         "learning_rate": trial.suggest_float("learning_rate", 1e-6, 3e-5, log=True),
@@ -90,35 +104,9 @@ class RDropTrainer(Trainer):
         return (loss, outputs1) if return_outputs else loss
 
 
-def main(config: dict, hpo: bool = False, n_trials: int = 10, rdrop: bool = False):
-    os.makedirs(config["output_dir"], exist_ok=True)
-
-    # Load data
-    df = load_train_data(
-        config["data_dir"], config["language_filter"], config.get("label_map")
-    )
-    print(f"Training samples after filter: {len(df)}")
-    print(f"Label distribution:\n{df['label'].value_counts()}\n")
-
-    df_train, df_val = train_test_split(
-        df,
-        test_size=config["val_split"],
-        stratify=df["label"],
-        random_state=config["seed"],
-    )
-    print(f"Train: {len(df_train)} | Val: {len(df_val)}")
-
-    # Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
-
-    train_dataset = NLIDataset(df_train, tokenizer, config["max_length"])
-    val_dataset = NLIDataset(df_val, tokenizer, config["max_length"])
-
-    model_init = build_model_init(config)
-
-    # Training arguments
-    training_args = TrainingArguments(
-        output_dir=config["output_dir"],
+def build_training_args(config: dict, output_dir: str) -> TrainingArguments:
+    return TrainingArguments(
+        output_dir=output_dir,
         num_train_epochs=config["num_epochs"],
         per_device_train_batch_size=config["batch_size"],
         per_device_eval_batch_size=config["batch_size"],
@@ -137,20 +125,79 @@ def main(config: dict, hpo: bool = False, n_trials: int = 10, rdrop: bool = Fals
         seed=config["seed"],
     )
 
+
+def run_training(
+    config: dict,
+    df_train: pd.DataFrame,
+    df_val: pd.DataFrame,
+    tokenizer,
+    model_init,
+    rdrop: bool,
+    output_dir: str,
+) -> dict:
+    train_dataset = NLIDataset(df_train, tokenizer, config["max_length"])
+    val_dataset = NLIDataset(df_val, tokenizer, config["max_length"])
+
     trainer_cls = RDropTrainer if rdrop else Trainer
     trainer_kwargs = {"rdrop_alpha": config.get("rdrop_alpha", 1.0)} if rdrop else {}
     trainer = trainer_cls(
         model=None,
         model_init=model_init,
-        args=training_args,
+        args=build_training_args(config, output_dir),
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
         **trainer_kwargs,
     )
+    trainer.train()
+
+    best_model_dir = os.path.join(output_dir, "best_model")
+    trainer.save_model(best_model_dir)
+    tokenizer.save_pretrained(best_model_dir)
+    print(f"\nBest model saved to: {best_model_dir}")
+
+    metrics = trainer.evaluate()
+    print(f"\nFinal val metrics ({output_dir}): {metrics}")
+    return metrics
+
+
+def main(
+    config: dict,
+    hpo: bool = False,
+    n_trials: int = 10,
+    rdrop: bool = False,
+    kfold: int | None = None,
+) -> None:
+    os.makedirs(config["output_dir"], exist_ok=True)
+
+    df = load_train_data(
+        config["data_dir"], config["language_filter"], config.get("label_map")
+    )
+    print(f"Training samples after filter: {len(df)}")
+    print(f"Label distribution:\n{df['label'].value_counts()}\n")
+
+    tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
+    model_init = build_model_init(config)
 
     if hpo:
+        df_train, df_val = train_test_split(
+            df,
+            test_size=config["val_split"],
+            stratify=df["label"],
+            random_state=config["seed"],
+        )
+        train_dataset = NLIDataset(df_train, tokenizer, config["max_length"])
+        val_dataset = NLIDataset(df_val, tokenizer, config["max_length"])
+        trainer = Trainer(
+            model=None,
+            model_init=model_init,
+            args=build_training_args(config, config["output_dir"]),
+            train_dataset=train_dataset,
+            eval_dataset=val_dataset,
+            compute_metrics=compute_metrics,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+        )
         best = trainer.hyperparameter_search(
             direction="maximize",
             backend="optuna",
@@ -161,17 +208,30 @@ def main(config: dict, hpo: bool = False, n_trials: int = 10, rdrop: bool = Fals
         print(f"\nBest trial: {best}")
         return
 
-    trainer.train()
+    if kfold:
+        folds = make_stratified_folds(df, kfold, config["seed"])
+        fold_accuracies = []
+        for i, (train_idx, val_idx) in enumerate(folds):
+            print(f"\n=== Fold {i + 1}/{kfold} ===")
+            df_train, df_val = df.iloc[train_idx], df.iloc[val_idx]
+            output_dir = os.path.join(config["output_dir"], f"fold_{i}")
+            os.makedirs(output_dir, exist_ok=True)
+            metrics = run_training(
+                config, df_train, df_val, tokenizer, model_init, rdrop, output_dir
+            )
+            fold_accuracies.append(metrics["eval_accuracy"])
+        avg_acc = sum(fold_accuracies) / len(fold_accuracies)
+        print(f"\nAverage accuracy across {kfold} folds: {avg_acc:.4f}")
+        return
 
-    # Save final model and tokenizer
-    best_model_dir = os.path.join(config["output_dir"], "best_model")
-    trainer.save_model(best_model_dir)
-    tokenizer.save_pretrained(best_model_dir)
-    print(f"\nBest model saved to: {best_model_dir}")
-
-    # Final eval report
-    metrics = trainer.evaluate()
-    print(f"\nFinal val metrics: {metrics}")
+    df_train, df_val = train_test_split(
+        df,
+        test_size=config["val_split"],
+        stratify=df["label"],
+        random_state=config["seed"],
+    )
+    print(f"Train: {len(df_train)} | Val: {len(df_val)}")
+    run_training(config, df_train, df_val, tokenizer, model_init, rdrop, config["output_dir"])
 
 
 if __name__ == "__main__":
@@ -180,5 +240,12 @@ if __name__ == "__main__":
     parser.add_argument("--hpo", action="store_true", help="Run Optuna hyperparameter search instead of a normal training run")
     parser.add_argument("--n-trials", type=int, default=10)
     parser.add_argument("--rdrop", action="store_true", help="Use R-Drop regularization (two forward passes + KL consistency loss)")
+    parser.add_argument("--kfold", type=int, default=None, help="Train N stratified folds instead of a single train/val split; saves each to outputs/fold_{i}/best_model")
     args = parser.parse_args()
-    main(load_config(args.config), hpo=args.hpo, n_trials=args.n_trials, rdrop=args.rdrop)
+    main(
+        load_config(args.config),
+        hpo=args.hpo,
+        n_trials=args.n_trials,
+        rdrop=args.rdrop,
+        kfold=args.kfold,
+    )
