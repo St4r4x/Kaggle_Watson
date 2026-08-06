@@ -1,0 +1,25 @@
+model_name: outputs/xnli_pretrained   # output of src/continued_pretrain.py — same label scheme as config.yaml's xlm-roberta-large-xnli, since it was built with the same label_map/checkpoint_id2label
+
+label_map: {0: 2, 1: 1, 2: 0}
+checkpoint_id2label: {0: contradiction, 1: neutral, 2: entailment}
+
+data_dir: data/
+output_dir: outputs/xnli_pretrained_finetuned/
+language_filter: all
+val_split: 0.15
+seed: 42
+
+max_length: 256
+
+batch_size: 8
+num_epochs: 5
+learning_rate: 1.409e-5
+warmup_ratio: 0.115
+weight_decay: 0.087
+gradient_accumulation_steps: 2
+bf16: false
+
+metric_for_best_model: accuracy
+load_best_model_at_end: true
+eval_strategy: epoch
+save_strategy: epoch
