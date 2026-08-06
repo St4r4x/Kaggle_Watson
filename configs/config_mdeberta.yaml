@@ -1,0 +1,26 @@
+model_name: MoritzLaurer/mDeBERTa-v3-base-mnli-xnli   # already fine-tuned on MNLI+XNLI; native id2label is 0=entailment,1=neutral,2=contradiction — identical to Kaggle's own order, verified via the Hub config.json, so no label_map/checkpoint_id2label remap is needed here (unlike config.yaml's xlm-roberta-large-xnli)
+
+# Data
+data_dir: data/
+output_dir: outputs/mdeberta/
+language_filter: all       # "english" or "all"
+val_split: 0.15
+seed: 42
+
+# Tokenization
+max_length: 256
+
+# Training
+batch_size: 8
+num_epochs: 5
+learning_rate: 1.409e-5   # reused from the Optuna sweep for xlm-roberta-large-xnli as a starting point; not separately tuned for mDeBERTa
+warmup_ratio: 0.115
+weight_decay: 0.087
+gradient_accumulation_steps: 2
+bf16: false
+
+# Evaluation
+metric_for_best_model: accuracy
+load_best_model_at_end: true
+eval_strategy: epoch
+save_strategy: epoch
