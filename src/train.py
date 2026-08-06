@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score
 
 import torch
+import torch.nn.functional as F
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
@@ -62,7 +63,34 @@ def hpo_space(trial):
     }
 
 
-def main(config: dict, hpo: bool = False, n_trials: int = 10):
+class RDropTrainer(Trainer):
+    """Two forward passes per batch (different dropout masks) + symmetric KL consistency loss.
+    https://arxiv.org/abs/2106.14448
+    """
+
+    def __init__(self, *args, rdrop_alpha: float = 1.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rdrop_alpha = rdrop_alpha
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs["labels"]
+        outputs1 = model(**inputs)
+        outputs2 = model(**inputs)
+        ce = 0.5 * (
+            F.cross_entropy(outputs1.logits, labels)
+            + F.cross_entropy(outputs2.logits, labels)
+        )
+        log_p1 = F.log_softmax(outputs1.logits, dim=-1)
+        log_p2 = F.log_softmax(outputs2.logits, dim=-1)
+        kl = 0.5 * (
+            F.kl_div(log_p1, log_p2, log_target=True, reduction="batchmean")
+            + F.kl_div(log_p2, log_p1, log_target=True, reduction="batchmean")
+        )
+        loss = ce + self.rdrop_alpha * kl
+        return (loss, outputs1) if return_outputs else loss
+
+
+def main(config: dict, hpo: bool = False, n_trials: int = 10, rdrop: bool = False):
     os.makedirs(config["output_dir"], exist_ok=True)
 
     # Load data
@@ -109,7 +137,9 @@ def main(config: dict, hpo: bool = False, n_trials: int = 10):
         seed=config["seed"],
     )
 
-    trainer = Trainer(
+    trainer_cls = RDropTrainer if rdrop else Trainer
+    trainer_kwargs = {"rdrop_alpha": config.get("rdrop_alpha", 1.0)} if rdrop else {}
+    trainer = trainer_cls(
         model=None,
         model_init=model_init,
         args=training_args,
@@ -117,6 +147,7 @@ def main(config: dict, hpo: bool = False, n_trials: int = 10):
         eval_dataset=val_dataset,
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+        **trainer_kwargs,
     )
 
     if hpo:
@@ -148,5 +179,6 @@ if __name__ == "__main__":
     parser.add_argument("--config", default="configs/config.yaml")
     parser.add_argument("--hpo", action="store_true", help="Run Optuna hyperparameter search instead of a normal training run")
     parser.add_argument("--n-trials", type=int, default=10)
+    parser.add_argument("--rdrop", action="store_true", help="Use R-Drop regularization (two forward passes + KL consistency loss)")
     args = parser.parse_args()
-    main(load_config(args.config), hpo=args.hpo, n_trials=args.n_trials)
+    main(load_config(args.config), hpo=args.hpo, n_trials=args.n_trials, rdrop=args.rdrop)
