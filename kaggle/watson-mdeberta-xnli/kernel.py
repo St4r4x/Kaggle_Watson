@@ -124,6 +124,7 @@ def main() -> None:
         report_to="none",
         seed=SEED,
         save_total_limit=1,
+        save_only_model=True,
     )
 
     trainer = Trainer(

@@ -129,6 +129,7 @@ def build_training_args(config: dict, output_dir: str) -> TrainingArguments:
         report_to="mlflow",
         seed=config["seed"],
         save_total_limit=1,
+        save_only_model=True,
     )
 
 

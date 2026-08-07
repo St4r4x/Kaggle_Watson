@@ -99,6 +99,7 @@ def main(config: dict, samples_per_language: int, output_dir: str) -> None:
         report_to="mlflow",
         seed=config["seed"],
         save_total_limit=1,
+        save_only_model=True,
     )
 
     trainer = Trainer(
