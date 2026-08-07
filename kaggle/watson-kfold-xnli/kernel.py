@@ -3,7 +3,9 @@ Standalone script — Kaggle kernels don't have this repo's src/ package layout,
 minimal needed pieces of dataset.py/train.py are vendored here directly.
 """
 
+import glob
 import os
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -139,6 +141,7 @@ def main() -> None:
             logging_steps=50,
             report_to="none",
             seed=SEED,
+            save_total_limit=1,
         )
 
         trainer = Trainer(
@@ -155,6 +158,13 @@ def main() -> None:
         best_model_dir = os.path.join(fold_output_dir, "best_model")
         trainer.save_model(best_model_dir)
         tokenizer.save_pretrained(best_model_dir)
+
+        # Kaggle's disk is small relative to 5 folds x 5 epochs of xlm-roberta-large
+        # checkpoints — the best_model/ copy above is all downstream steps need, so
+        # drop the raw per-epoch checkpoint dirs now instead of letting them pile up
+        # across folds.
+        for checkpoint_dir in glob.glob(os.path.join(fold_output_dir, "checkpoint-*")):
+            shutil.rmtree(checkpoint_dir)
 
         metrics = trainer.evaluate()
         print(f"Fold {i} val metrics: {metrics}")

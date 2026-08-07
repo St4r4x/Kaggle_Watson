@@ -123,6 +123,7 @@ def main() -> None:
         logging_steps=50,
         report_to="none",
         seed=SEED,
+        save_total_limit=1,
     )
 
     trainer = Trainer(

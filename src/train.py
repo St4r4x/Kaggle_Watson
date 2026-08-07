@@ -6,7 +6,9 @@ Usage:
 """
 
 import argparse
+import glob
 import os
+import shutil
 from typing import Callable
 
 import numpy as np
@@ -126,6 +128,7 @@ def build_training_args(config: dict, output_dir: str) -> TrainingArguments:
         logging_steps=50,
         report_to="mlflow",
         seed=config["seed"],
+        save_total_limit=1,
     )
 
 
@@ -159,6 +162,11 @@ def run_training(
     trainer.save_model(best_model_dir)
     tokenizer.save_pretrained(best_model_dir)
     print(f"\nBest model saved to: {best_model_dir}")
+
+    # best_model/ above already has everything downstream steps need — drop the raw
+    # per-epoch checkpoint dirs so a --kfold run doesn't accumulate disk across folds.
+    for checkpoint_dir in glob.glob(os.path.join(output_dir, "checkpoint-*")):
+        shutil.rmtree(checkpoint_dir)
 
     metrics = trainer.evaluate()
     print(f"\nFinal val metrics ({output_dir}): {metrics}")

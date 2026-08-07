@@ -98,6 +98,7 @@ def main(config: dict, samples_per_language: int, output_dir: str) -> None:
         logging_steps=100,
         report_to="mlflow",
         seed=config["seed"],
+        save_total_limit=1,
     )
 
     trainer = Trainer(
