@@ -43,9 +43,11 @@ python src/train.py --config configs/config.yaml --hpo --n-trials 8
 | deberta-v3-base, English only | 85.5% | — |
 | deberta-v3-base, 15 languages | 78.0% | — |
 | xlm-roberta-large (raw), 15 languages | 81.7% | — |
-| **xlm-roberta-large-xnli, 15 languages** | **92.24%** | **0.91241** |
+| xlm-roberta-large-xnli, 15 languages | 92.24% | 0.91241 |
+| **5-fold xlm-roberta-large-xnli + mDeBERTa-v3-xnli ensemble** | 92.32% (fold avg) | **0.92858** |
 
 Winning hyperparameters (Optuna, n_trials=8): `learning_rate: 1.409e-5`, `warmup_ratio: 0.115`, `weight_decay: 0.087`.
+R-Drop regularization was tried and made things worse (90.92% val acc) — not worth revisiting without a different setup.
 
 ## Submitting to Kaggle
 This competition is **kernels-only** (`is_kernels_submissions_only`) — no direct CSV upload. Flow:
@@ -54,8 +56,10 @@ This competition is **kernels-only** (`is_kernels_submissions_only`) — no dire
 3. Inside the kernel, real mount paths are `/kaggle/input/datasets/<owner>/<slug>/` and `/kaggle/input/competitions/<comp-slug>/` — NOT the flat `/kaggle/input/<slug>/` from older docs
 4. `enable_gpu: true` but add a `torch.cuda.get_device_capability()` check with CPU fallback — Kaggle's free-tier P100 (sm_60) isn't supported by current PyTorch wheels; will error otherwise
 5. Use dynamic padding (`tokenizer.pad(..., padding=True)`) not fixed `max_length` padding for inference — ~4x faster on CPU fallback
-6. Submit with the classic CLI, not the MCP server (`mcp__kaggle__*` write/status endpoints return `Unauthenticated` even though read endpoints work): `kaggle competitions submit <comp> -k <owner>/<kernel-slug> -v <version> -f submission.csv -m "..."`
+6. Submit with the classic CLI, not the MCP server (`mcp__kaggle__*` write/status endpoints return `Unauthenticated` even though read endpoints work): `kaggle competitions submit <comp> -k <owner>/<kernel-slug> -v <version> -f submission.csv -m "..."` — a bare `-f` without `-k`/`-v` gets a 400 (kernels-only rejects plain file submissions)
 7. Auth: `kaggle` CLI 2.2.4+ reads `~/.kaggle/access_token` automatically (newer token format, not the classic `kaggle.json` username+key)
+8. **Multi-model ensembles are much faster run locally** (GPU) than as a Kaggle CPU-fallback kernel — 6 models over the ~5.2k test rows took ~8min on a local RTX 4060 Ti vs. still running after 2.5h on Kaggle's CPU fallback. Since submissions still require a kernel, use a passthrough/shim kernel: upload the locally-generated `submission.csv` as a Kaggle Dataset, then push a one-line kernel that just `shutil.copy`s it to its own output and submit that kernel version — satisfies kernels-only without re-running inference on Kaggle.
+9. **Gotcha:** if a kernel's first push references a dataset that doesn't exist yet (e.g. still uploading), the kernel can get stuck with a broken dataset attachment that later pushes with a valid dataset_sources list don't fix — `AutoTokenizer.from_pretrained` fails with `HFValidationError`/`os.path.exists() == False` on the mounted path even though the dataset is `ready` and the same path works fine from a brand-new kernel. Fix: push under a fresh kernel id rather than re-pushing the same one.
 
 ## Relevant skills
 - `/training-check` — review training loop before launching
