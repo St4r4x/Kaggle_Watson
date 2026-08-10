@@ -16,9 +16,7 @@ TEST_CSV = f"/kaggle/input/competitions/{COMPETITION_SLUG}/test.csv"
 KFOLD_DATASET = "/kaggle/input/datasets/st4r4x/watson-kfold-xnli-models"
 MDEBERTA_DATASET = "/kaggle/input/datasets/st4r4x/watson-mdeberta-xnli-model"
 
-MODEL_DIRS = [f"{KFOLD_DATASET}/fold_{i}/best_model" for i in range(5)] + [
-    f"{MDEBERTA_DATASET}/best_model"
-]
+MODEL_DIRS = [f"{KFOLD_DATASET}/fold_{i}/best_model" for i in range(5)] + [MDEBERTA_DATASET]
 
 MAX_LENGTH = 256
 BATCH_SIZE = 8
